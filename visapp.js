@@ -14,7 +14,7 @@ export async function fillLatviaEmbassyForm() {
   const browser = await puppeteer.launch({
     headless: process.env.NODE_ENV === 'production', // Set to true for production use
     defaultViewport: null,
-    args: ['--start-maximized']
+    args: ['--start-maximized', '--no-sandbox', '--disable-setuid-sandbox'] // Added no-sandbox for Fly.io
   }).catch(error => {
     console.error('Failed to launch browser:', error);
     process.exit(1);
@@ -44,7 +44,8 @@ export async function fillLatviaEmbassyForm() {
     await fillField(page, '#e_mail_repeat', formData.email);
     await fillField(page, '#phone', formData.phone);
 
-    await page.screenshot({ path: 'step1-form-filled.png' });
+    await page.screenshot({ path: '/data/step1-form-filled.png' });
+    
     console.log('Step 1 form filled successfully! Screenshot saved as step1-form-filled.png');
 
     // Submit the form
@@ -60,12 +61,12 @@ export async function fillLatviaEmbassyForm() {
       console.error('Failed to load step 2 form:', error.message);
       throw new Error('Step 2 form not found after submission');
     });
-    await page.screenshot({ path: 'step2-initial.png' });
+    await page.screenshot({ path: '/data/step2-initial.png' });
     console.log('Successfully navigated to step 2');
     console.log('Opening service dropdown...');
     await page.click('.js-services').catch(async error => {
       console.error('Failed to click on services dropdown:', error.message);
-      await page.screenshot({ path: 'dropdown-error.png' });
+      await page.screenshot({ path: '/data/dropdown-error.png' });
       throw new Error('Could not open services dropdown');
     });
 
@@ -93,7 +94,7 @@ export async function fillLatviaEmbassyForm() {
     // Click the service checkbox
     await page.click(`#${serviceId}`).catch(async error => {
       console.error(`Failed to select service ${formData.service}:`, error.message);
-      await page.screenshot({ path: 'service-selection-error.png' });
+      await page.screenshot({ path: '/data/service-selection-error.png' });
       throw error;
     });
     console.log('Service selected, waiting for confirmation dialog...');
@@ -107,7 +108,7 @@ export async function fillLatviaEmbassyForm() {
 await sleep(200)
       await page.click('#active-confirmation').catch(async error => {
         console.error('Failed to click confirmation checkbox:', error.message);
-        await page.screenshot({ path: 'checkbox-error.png' });
+        await page.screenshot({ path: '/data/checkbox-error.png' });
         throw error;
       });
       console.log('Confirmation checkbox checked, clicking Add button...');
@@ -115,7 +116,7 @@ await sleep(200)
 
     await page.click(`.js-addService[data-serviceid="${serviceId}"]`).catch(async error => {
       console.error('Failed to click Add button:', error.message);
-      await page.screenshot({ path: 'add-button-error.png' });
+      await page.screenshot({ path: '/data/add-button-error.png' });
       throw error;
     });
     
@@ -123,7 +124,7 @@ await sleep(200)
 
 
     // Take screenshot of selected service
-    await page.screenshot({ path: 'service-selected.png' });
+    await page.screenshot({ path: '/data/service-selected.png' });
     
     // Submit the form (step 2)
     
@@ -132,7 +133,7 @@ await sleep(200)
 
     await page.click('#step2-next-btn .btn-next-step').catch(async error => {
       console.error('Failed to click Next step button:', error.message);
-      await page.screenshot({ path: 'next-step-error.png' });
+      await page.screenshot({ path: '/data/next-step-error.png' });
       throw error;
     });
 
@@ -146,7 +147,7 @@ await sleep(200)
   });
  const isAvailable = await checkBookingAvailability(page)
 
- await page.screenshot({ path: 'embassy-booking-check.png' });
+ await page.screenshot({ path: '/data/embassy-booking-check.png' });
 
   console.log('Form process completed successfully! Check final-result.png for outcome.');
 
@@ -157,7 +158,7 @@ await sleep(200)
   } catch (error) {
     console.error('An error occurred: ', error);
    
-      await page?.screenshot({ path: 'error-screenshot.png' });
+      await page?.screenshot({ path: '/data/error-screenshot.png' });
       console.log('Error screenshot saved as error-screenshot.png');
     
   } finally {
@@ -249,4 +250,3 @@ async function checkBookingAvailability(page) {
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
-
