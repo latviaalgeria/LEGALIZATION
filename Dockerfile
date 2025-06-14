@@ -1,7 +1,7 @@
 # Use a Node.js 20 base image that includes build tools
 FROM node:20-buster
 
-# Install Puppeteer dependencies
+# Install Puppeteer dependencies, including the missing libgbm1
 RUN apt-get update && apt-get install -y \
     gconf-service \
     libasound2 \
@@ -40,6 +40,7 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     xdg-utils \
     wget \
+    libgbm1 \
     --no-install-recommends
 
 # Set the working directory in the container
