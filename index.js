@@ -1,96 +1,89 @@
-// telegram-bot-data-scheduler.js
- import { Telegraf } from 'telegraf';
- import cron from 'node-cron';
- import { fillLatviaEmbassyForm } from './visapp.js';
- import fs from 'fs/promises';
- import dotenv from 'dotenv';
- 
- dotenv.config();
- 
- // Correct path for Fly.io persistent storage
- const DB_FILE = '/data/subscribers.json';
- const SCREENSHOT_PATH = '/data/embassy-booking-check.png';
- 
- const botToken = process.env.TELEGRAM_BOT_TOKEN;
+import { Telegraf } from 'telegraf';
+import cron from 'node-cron';
+import puppeteer from 'puppeteer'; // Import puppeteer here
+import { fillLatviaEmbassyForm } from './visapp.js';
+import fs from 'fs/promises';
+import dotenv from 'dotenv';
 
-// Initialize Telegram bot
+dotenv.config();
+
+const DB_FILE = '/data/subscribers.json';
+const SCREENSHOT_PATH = '/data/embassy-booking-check.png';
+const botToken = process.env.TELEGRAM_BOT_TOKEN;
+
 if (!botToken) {
   console.error('Error: TELEGRAM_BOT_TOKEN is undefined. Make sure your secrets are set.');
   process.exit(1);
 }
+
 const bot = new Telegraf(botToken);
 let subscribedUsers = new Set();
+let browser; // This will hold our single browser instance
 
 async function loadSubscribers() {
   try {
     const data = await fs.readFile(DB_FILE, 'utf8');
-    const subscribers = JSON.parse(data);
-    subscribedUsers = new Set(subscribers);
+    subscribedUsers = new Set(JSON.parse(data));
     console.log(`Loaded ${subscribedUsers.size} subscribers from database`);
   } catch (error) {
     if (error.code === 'ENOENT') {
-      console.log('No existing subscribers database found, creating a new one');
-      await saveSubscribers(); // Create empty DB file
+      console.log('No subscribers database found, creating one.');
+      await saveSubscribers();
     } else {
       console.error('Error loading subscribers database:', error.message);
     }
   }
 }
 
-// Function to save subscribers to JSON file
 async function saveSubscribers() {
   try {
-    const subscribers = Array.from(subscribedUsers);
-    await fs.writeFile(DB_FILE, JSON.stringify(subscribers, null, 2), 'utf8');
-    console.log(`Saved ${subscribers.length} subscribers to database`);
+    await fs.writeFile(DB_FILE, JSON.stringify(Array.from(subscribedUsers), null, 2), 'utf8');
+    console.log(`Saved ${subscribedUsers.size} subscribers to database`);
   } catch (error) {
     console.error('Error saving subscribers database:', error.message);
   }
 }
 
-// Function to fetch data 
+// fetchData now uses the global browser instance
 async function fetchData() {
+  if (!browser) {
+    throw new Error("Browser is not initialized.");
+  }
   try {
-    const response = await fillLatviaEmbassyForm();
+    const response = await fillLatviaEmbassyForm(browser); // Pass browser instance
     return response;
   } catch (error) {
     console.error('Error fetching data:', error.message);
-    return { error: 'Failed to fetch data' };
+    return false; // Return false on error to prevent spamming
   }
 }
 
-// Format the data for display in Telegram
 function formatData(data) {
-    if (data === true) {
-        return '🟢 Available'
-    } else {
-        return '🔴 Not Available'
-    }
+  return data === true ? '🟢 Available' : '🔴 Not Available';
 }
 
-// Schedule to send data every minute to all subscribed users
 cron.schedule('* * * * *', async () => {
   if (subscribedUsers.size === 0) {
-    return; // No users subscribed
+    return;
   }
-  
+  console.log("Scheduled check: Starting data fetch...");
   try {
     const data = await fetchData();
-    const formattedMessage = formatData(data);
-    console.log("data ", data);
-    if (typeof data === "boolean" && data === false) {
-      return;
-    }
-    // Send to all subscribed users
-    for (const chatId of subscribedUsers) {
-      try {
-        await bot.telegram.sendMessage(chatId, formattedMessage);
-        await bot.telegram.sendPhoto(chatId,{source: SCREENSHOT_PATH},{caption:'Embassy Booking Check'});
-      } catch (err) {
-        console.error(`Failed to send message to ${chatId}:`, err.message);
-        if (err.message.includes('blocked') || err.message.includes('not found')) {
-          subscribedUsers.delete(chatId);
-          await saveSubscribers();
+    console.log("Scheduled check result: ", data);
+
+    if (data === true) {
+      console.log("AVAILABILITY FOUND! Sending message to subscribers.");
+      const formattedMessage = formatData(data);
+      for (const chatId of subscribedUsers) {
+        try {
+          await bot.telegram.sendMessage(chatId, formattedMessage);
+          await bot.telegram.sendPhoto(chatId, { source: SCREENSHOT_PATH }, { caption: 'Embassy Booking Check' });
+        } catch (err) {
+          console.error(`Failed to send message to ${chatId}:`, err.message);
+          if (err.message.includes('blocked') || err.message.includes('not found')) {
+            subscribedUsers.delete(chatId);
+            await saveSubscribers();
+          }
         }
       }
     }
@@ -99,68 +92,60 @@ cron.schedule('* * * * *', async () => {
   }
 });
 
-// Bot commands
+// Bot commands remain simple
 bot.command('start', (ctx) => {
-  ctx.reply(`👋 Welcome to Data Reporter Bot!
-  
-Commands:
-/subscribe - Start receiving data updates every minute
-/unsubscribe - Stop receiving updates
-/getdata - Get data once immediately
-/status - Check subscription status`);
+  ctx.reply(`👋 Welcome! Use /subscribe to get alerts and /unsubscribe to stop.`);
 });
 
 bot.command('subscribe', async (ctx) => {
-  const chatId = ctx.chat.id;
-  subscribedUsers.add(chatId);
+  subscribedUsers.add(ctx.chat.id);
   await saveSubscribers();
-  ctx.reply('✅ You are now subscribed to data updates every minute');
+  ctx.reply('✅ You are now subscribed. I will alert you when an appointment is available.');
 });
 
 bot.command('unsubscribe', async (ctx) => {
-  const chatId = ctx.chat.id;
-  subscribedUsers.delete(chatId);
+  subscribedUsers.delete(ctx.chat.id);
   await saveSubscribers();
-  ctx.reply('❌ You are now unsubscribed from data updates');
-});
-
-bot.command('getdata', async (ctx) => {
-  try {
-    ctx.reply('Fetching latest data...');
-    const data = await fetchData();
-    console.log("data ", data);
-    await ctx.reply(formatData(data));
-    await ctx.replyWithPhoto( { source: SCREENSHOT_PATH }, { caption: 'Embassy Booking Check',},);
-  } catch (error) {
-    ctx.reply('❌ Error fetching data');
-    console.error('Error handling getdata command:', error);
-  }
+  ctx.reply('❌ You are now unsubscribed.');
 });
 
 bot.command('status', (ctx) => {
-  const chatId = ctx.chat.id;
-  const subscribed = subscribedUsers.has(chatId);
-  ctx.reply(subscribed 
-    ? '✅ You are currently subscribed to minute-by-minute updates'
-    : '❌ You are not subscribed to updates');
+  const isSubscribed = subscribedUsers.has(ctx.chat.id);
+  ctx.reply(isSubscribed ? '✅ You are currently subscribed.' : '❌ You are not subscribed.');
 });
 
-bot.catch((err, ctx) => {
-  console.error(`Error for ${ctx.updateType}:`, err);
-  ctx.reply('An error occurred while processing your request');
-});
+// Main function to start everything
+async function main() {
+  await loadSubscribers();
+  
+  console.log("Launching single persistent browser instance...");
+  try {
+    browser = await puppeteer.launch({
+      headless: process.env.NODE_ENV === 'production',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--start-maximized'
+      ]
+    });
+    console.log("Browser launched successfully.");
+  } catch (e) {
+    console.error("Could not launch browser!", e);
+    process.exit(1);
+  }
 
-// Start the bot
-loadSubscribers()
-  .then(() => {
-    return bot.launch();
-  })
-  .then(() => {
+  bot.launch(() => {
     console.log('Bot started successfully!');
-  })
-  .catch(err => {
-    console.error('Failed to start bot:', err);
   });
+}
 
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+main();
+
+process.once('SIGINT', async () => {
+  if (browser) await browser.close();
+  bot.stop('SIGINT');
+});
+process.once('SIGTERM', async () => {
+  if (browser) await browser.close();
+  bot.stop('SIGTERM');
+});
