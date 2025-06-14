@@ -10,12 +10,16 @@ export async function fillLatviaEmbassyForm() {
 
   };
 
-  // Launch browser with options
-  const browser = await puppeteer.launch({
-    headless: process.env.NODE_ENV === 'production', // Set to true for production use
-    defaultViewport: null,
-    args: ['--start-maximized', '--no-sandbox', '--disable-setuid-sandbox'] // Added no-sandbox for Fly.io
-  }).catch(error => {
+ // This is the new, correct code
+const browser = await puppeteer.launch({
+  headless: process.env.NODE_ENV === 'production', // Set to true for production use
+  defaultViewport: null,
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--start-maximized'
+  ]
+}).catch(error => {
     console.error('Failed to launch browser:', error);
     process.exit(1);
   });
